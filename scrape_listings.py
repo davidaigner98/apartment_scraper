@@ -3,9 +3,11 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import sqlite3
 from datetime import datetime
+import requests
 
 BASE_URL = "https://www.willhaben.at"
 URL = "https://www.willhaben.at/iad/immobilien/mietwohnungen/mietwohnung-angebote?sfId=1d30152f-be68-4e65-9d34-17a68060cbcc&areaId=900&rows=30&keyword=Altbau&isNavigation=true&page=1&PRICE_TO=1500"
+DC_HOOK_URL = "https://discord.com/api/webhooks/1520889619443482764/j-gn8mY7STSBjh0LJgGDHXsoUkTlCurMVEKriJaIC2s2RB59a-ShZ-96PMyYFRZFSU-0"
 
 
 def init_db():
@@ -179,6 +181,12 @@ def scrape_listings():
     return listings
 
 
+def notify_discord(message):
+    requests.post(DC_HOOK_URL, json={
+        "content": message
+    })
+
+
 if __name__ == "__main__":
     init_db()
 
@@ -187,4 +195,18 @@ if __name__ == "__main__":
     new_items, updated_items = process_listings(listings)
 
     print(f"New: {len(new_items)} | Updated: {len(updated_items)}")
+    for item in new_items:
+        notify_discord(
+            f"🏠 NEW LISTING\n"
+            f"{item['title']}\n"
+            f"€{item['price']}\n"
+            f"{item['url']}"
+        )
 
+    for item in updated_items:
+        notify_discord(
+            f"📉 PRICE UPDATE\n"
+            f"{item['title']}\n"
+            f"€{item['price']}\n"
+            f"{item['url']}"
+        )
