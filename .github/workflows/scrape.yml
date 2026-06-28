@@ -26,21 +26,22 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium
 
-      # 4. download previous DB artifact (if exists)
-      - name: Download DB artifact
-        uses: actions/download-artifact@v4
-        continue-on-error: true
+      # 4. restore database cache
+      - name: Restore database cache
+        uses: actions/cache/restore@v4
         with:
-          name: listings-db
-          path: .
+          path: listings.db
+          key: listings-db-${{ github.run_id }}
+          restore-keys: |
+            listings-db-
 
       # 5. run scraper
       - name: Run scraper
         run: python scrape_listings.py
 
-      # 6. upload updated DB
-      - name: Upload DB artifact
-        uses: actions/upload-artifact@v4
+      # 6. save database cache
+      - name: Save database cache
+        uses: actions/cache/save@v4
         with:
-          name: listings-db
           path: listings.db
+          key: listings-db-${{ github.run_id }}
