@@ -1,0 +1,46 @@
+name: scrape_apartments
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # every 15 minutes
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. checkout repo
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # 2. setup python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 3. install dependencies
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+
+      # 4. download previous DB artifact (if exists)
+      - name: Download DB artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: listings-db
+          path: .
+
+      # 5. run scraper
+      - name: Run scraper
+        run: python scrape_listings.py
+
+      # 6. upload updated DB
+      - name: Upload DB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: listings-db
+          path: listings.db
