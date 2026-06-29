@@ -10,6 +10,7 @@ URL = "https://www.willhaben.at/iad/immobilien/mietwohnungen/mietwohnung-angebot
 DC_HOOK_URL = "https://discord.com/api/webhooks/1520889619443482764/j-gn8mY7STSBjh0LJgGDHXsoUkTlCurMVEKriJaIC2s2RB59a-ShZ-96PMyYFRZFSU-0"
 
 
+
 def init_db():
     conn = sqlite3.connect("listings.db")
     cur = conn.cursor()
@@ -195,7 +196,7 @@ if __name__ == "__main__":
     new_items, updated_items = process_listings(listings)
 
     print(f"New: {len(new_items)} | Updated: {len(updated_items)}")
-    for item in new_items:
+    for item in reversed(new_items):
         notify_discord(
             f"🏠 NEW LISTING\n"
             f"{item['title']}\n"
@@ -203,7 +204,7 @@ if __name__ == "__main__":
             f"{item['url']}"
         )
 
-    for item in updated_items:
+    for item in reversed(updated_items):
         notify_discord(
             f"📉 PRICE UPDATE\n"
             f"{item['title']}\n"
