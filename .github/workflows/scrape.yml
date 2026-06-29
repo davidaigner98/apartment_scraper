@@ -2,7 +2,8 @@ name: scrape_apartments
 
 on:
   repository_dispatch:
-    types: [run-scraper]
+    types:
+      - run-scraper
   workflow_dispatch:
 
 jobs:
