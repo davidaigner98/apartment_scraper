@@ -1,8 +1,8 @@
 name: scrape_apartments
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"   # every 15 minutes
+  repository_dispatch:
+    types: [run-scraper]
   workflow_dispatch:
 
 jobs:
