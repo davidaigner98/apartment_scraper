@@ -4,14 +4,11 @@ from urllib.parse import urljoin
 import sqlite3
 from datetime import datetime
 import requests
-import os
 
 BASE_URL = "https://www.willhaben.at"
 URL = "https://www.willhaben.at/iad/immobilien/mietwohnungen/mietwohnung-angebote?sfId=1d30152f-be68-4e65-9d34-17a68060cbcc&areaId=900&rows=30&keyword=Altbau&isNavigation=true&page=1&PRICE_TO=1500"
-DC_HOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+DC_HOOK_URL = "https://discord.com/api/webhooks/1520889619443482764/j-gn8mY7STSBjh0LJgGDHXsoUkTlCurMVEKriJaIC2s2RB59a-ShZ-96PMyYFRZFSU-0"
 
-if not DC_HOOK_URL:
-    raise RuntimeError("DISCORD_WEBHOOK_URL environment variable is not set.")
 
 
 def init_db():
@@ -82,6 +79,7 @@ def process_listings(listings):
         """, (listing_id,))
 
         row = cur.fetchone()
+        new_item = False
         if row:
             old_price = row[0]
         else:
