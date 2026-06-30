@@ -31,6 +31,32 @@ def init_db():
     conn.close()
 
 
+def print_db_report():
+    conn = sqlite3.connect("listings.db")
+    cur = conn.cursor()
+
+    cur.execute("SELECT COUNT(*) FROM listings_history")
+    print("Rows:", cur.fetchone()[0])
+
+    cur.execute("""
+    SELECT
+        listing_id,
+        title,
+        price,
+        event_type,
+        seen_at
+    FROM listings_history
+    ORDER BY seen_at DESC
+    LIMIT 10
+    """)
+
+    print("\nNewest 10 entries:")
+    for row in cur.fetchall():
+        print(row)
+
+    conn.commit()
+    conn.close()
+
 def process_listings(listings):
     conn = sqlite3.connect("listings.db")
     cur = conn.cursor()
@@ -191,12 +217,15 @@ def notify_discord(message):
 if __name__ == "__main__":
     init_db()
 
+    print_db_report()
+
     listings = scrape_listings()
 
     new_items, updated_items = process_listings(listings)
 
     print(f"New: {len(new_items)} | Updated: {len(updated_items)}")
     for item in reversed(new_items):
+        print(f"New item {item['id']}")
         notify_discord(
             f"🏠 NEW LISTING\n"
             f"{item['title']}\n"
@@ -205,6 +234,7 @@ if __name__ == "__main__":
         )
 
     for item in reversed(updated_items):
+        print(f"Updated item {item['id']}")
         notify_discord(
             f"📉 PRICE UPDATE\n"
             f"{item['title']}\n"
