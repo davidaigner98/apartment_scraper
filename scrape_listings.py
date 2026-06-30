@@ -79,10 +79,13 @@ def process_listings(listings):
         """, (listing_id,))
 
         row = cur.fetchone()
-        old_price = row[0] if row else None
+        if row:
+            old_price = row[0]
+        else:
+            new_item = True
 
         # Classify event
-        if old_price is None:
+        if new_item:
             event_type = "NEW"
             new_items.append(l)
         elif old_price != l["price"]:
