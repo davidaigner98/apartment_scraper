@@ -38,6 +38,8 @@ jobs:
 
       # 5. run scraper
       - name: Run scraper
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python scrape_listings.py
 
       # 6. save database cache
