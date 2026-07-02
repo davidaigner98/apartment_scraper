@@ -83,18 +83,13 @@ def process_listings(listings):
 
         row = cur.fetchone()
         new_item = False
-        if row:
-            old_price = row[0]
-        else:
+        if not row:
             new_item = True
 
         # Classify event
         if new_item:
             event_type = "NEW"
             new_items.append(l)
-        elif l["price"] is not None and old_price != l["price"]:
-            event_type = "PRICE_CHANGE"
-            updated_items.append(l)
         else:
             event_type = "SEEN"
 
@@ -117,7 +112,7 @@ def process_listings(listings):
     conn.commit()
     conn.close()
 
-    return new_items, updated_items
+    return new_items
 
 
 def scrape_listings():
@@ -228,22 +223,13 @@ if __name__ == "__main__":
 
     listings = scrape_listings()
 
-    new_items, updated_items = process_listings(listings)
+    new_items = process_listings(listings)
 
-    print(f"New: {len(new_items)} | Updated: {len(updated_items)}")
+    print(f"New: {len(new_items)}")
     for item in reversed(new_items):
         print(f"New item {item['id']}")
         notify_discord(
             f"🏠 NEW LISTING\n"
-            f"{item['title']}\n"
-            f"€{item['price']}\n"
-            f"{item['url']}"
-        )
-
-    for item in reversed(updated_items):
-        print(f"Updated item {item['id']}")
-        notify_discord(
-            f"📉 PRICE UPDATE\n"
             f"{item['title']}\n"
             f"€{item['price']}\n"
             f"{item['url']}"
