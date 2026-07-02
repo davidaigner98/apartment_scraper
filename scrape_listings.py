@@ -92,7 +92,7 @@ def process_listings(listings):
         if new_item:
             event_type = "NEW"
             new_items.append(l)
-        elif old_price != l["price"]:
+        elif l["price"] is not None and old_price != l["price"]:
             event_type = "PRICE_CHANGE"
             updated_items.append(l)
         else:
