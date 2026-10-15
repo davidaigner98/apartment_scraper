@@ -1,4 +1,4 @@
-name: Delete Most Recent Listing
+tename: Delete Most Recent Listing
 
 on:
   workflow_dispatch:
@@ -17,4 +17,4 @@ jobs:
           python-version: "3.12"
 
       - name: Run deletion script
-        run: python listings.py
+        run: python delete_listing.py
