@@ -1,4 +1,4 @@
-tename: Delete Most Recent Listing
+name: Delete Most Recent Listing
 
 on:
   workflow_dispatch:
