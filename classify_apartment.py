@@ -6,67 +6,81 @@ from pathlib import Path
 from huggingface_hub import hf_hub_download
 from llama_cpp import Llama
 
-MODEL_DIR = Path(os.getenv("MODEL_DIR", ".model-cache"))
-MODEL_PATH = MODEL_DIR / "Qwen3-1.7B-Q4_K_M.gguf"
+MODEL_DIR = Path(".model-cache")
+MODEL_FILENAME = "Qwen3-1.7B-Q4_K_M.gguf"
+MODEL_REPO = "bartowski/Qwen_Qwen3-1.7B-GGUF"
+
+_model = None
+
 
 def get_model():
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    global _model
 
-    if not MODEL_PATH.exists():
+    if _model is not None:
+        return _model
+
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    model_path = MODEL_DIR / MODEL_FILENAME
+
+    if not model_path.exists():
         hf_hub_download(
-            repo_id="bartowski/Qwen_Qwen3-1.7B-GGUF",
-            filename="Qwen3-1.7B-Q4_K_M.gguf",
+            repo_id=MODEL_REPO,
+            filename=MODEL_FILENAME,
             local_dir=str(MODEL_DIR),
         )
 
-    return Llama(
-        model_path=str(MODEL_PATH),
+    _model = Llama(
+        model_path=str(model_path),
         n_ctx=4096,
         n_threads=4,
         verbose=False,
     )
 
-PROMPT = """
-Du klassifizierst österreichische Wohnungsanzeigen.
-Verwende ausschließlich den folgenden Beschreibungstext.
+    return _model
 
-Gib ausschließlich ein JSON-Objekt zurück:
+
+def classify_apartment(description):
+    prompt = """
+Du klassifizierst österreichische Wohnungsanzeigen.
+
+Antworte ausschließlich mit einem JSON-Objekt mit genau
+diesen drei Feldern:
 {
-  "ground_floor": true | false | null,
-  "limited_duration": true | false | null,
-  "separate_kitchen": true | false | null
+  "ground_floor": true,
+  "limited_duration": null,
+  "separate_kitchen": false
 }
 
-Regeln:
+Erlaubte Werte sind true, false und null.
+
+Definitionen:
 - ground_floor: true bei Erdgeschoss, EG oder Parterre.
   false nur, wenn ein anderes Stockwerk ausdrücklich feststeht.
 - limited_duration: true bei ausdrücklich befristeter Miete
   oder Zwischenmiete. false nur, wenn unbefristete Miete
   ausdrücklich angegeben ist.
 - separate_kitchen: true bei einer eigenen, getrennten Küche.
-  false bei ausdrücklich offener Küche oder integrierter
-  Wohnküche.
+  false bei ausdrücklich offener Küche oder Küche im Wohnbereich.
 - null bei fehlenden, unklaren oder widersprüchlichen Angaben.
-- Nicht raten. Fehlende Angaben sind nicht false.
+
+Nicht raten. Fehlende Informationen bedeuten null.
 
 Beschreibung:
-"""
+""" + description[:10000]
 
-def classify_apartment(llm, description):
+    llm = get_model()
+
     response = llm.create_chat_completion(
         messages=[
-            {
-                "role": "user",
-                "content": PROMPT + description[:10000],
-            }
+            {"role": "user", "content": prompt}
         ],
         response_format={"type": "json_object"},
         temperature=0,
         max_tokens=150,
     )
 
-    raw = response["choices"][0]["message"]["content"]
-    result = json.loads(raw)
+    content = response["choices"][0]["message"]["content"]
+    result = json.loads(content)
 
     expected = {
         "ground_floor",
@@ -74,11 +88,11 @@ def classify_apartment(llm, description):
         "separate_kitchen",
     }
 
-    if set(result) != expected:
-        raise ValueError("Unexpected classification fields")
+    if not isinstance(result, dict) or set(result) != expected:
+        raise ValueError(f"Unexpected model output: {content}")
 
     for key in expected:
-        if result[key] not in (True, False, None):
+        if result[key] is not None and type(result[key]) is not bool:
             raise ValueError(f"Invalid value for {key}")
 
     return result
