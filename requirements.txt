@@ -2,3 +2,5 @@ playwright
 beautifulsoup4
 lxml
 requests
+llama-cpp-python
+huggingface-hub
