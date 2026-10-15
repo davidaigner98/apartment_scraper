@@ -7,7 +7,7 @@ from huggingface_hub import hf_hub_download
 from llama_cpp import Llama
 
 MODEL_DIR = Path(".model-cache")
-MODEL_FILENAME = "Qwen3-1.7B-Q4_K_M.gguf"
+MODEL_FILENAME = "Qwen_Qwen3-1.7B-Q4_K_M.gguf"
 MODEL_REPO = "bartowski/Qwen_Qwen3-1.7B-GGUF"
 
 _model = None
