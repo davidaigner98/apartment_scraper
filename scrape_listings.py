@@ -1,13 +1,24 @@
+
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-import sqlite3
 from datetime import datetime
+import sqlite3
 import requests
 import os
+import math
+
+from classify_apartment import classify_apartment
 
 BASE_URL = "https://www.willhaben.at"
-URL = "https://www.willhaben.at/iad/immobilien/mietwohnungen/mietwohnung-angebote?sfId=1d30152f-be68-4e65-9d34-17a68060cbcc&areaId=900&rows=30&keyword=Altbau&isNavigation=true&page=1&PRICE_TO=1500"
+URL = (
+    "https://www.willhaben.at/iad/immobilien/mietwohnungen/"
+    "mietwohnung-angebote?sfId=1d30152f-be68-4e65-9d34-17a68060cbcc"
+    "&areaId=900&rows=30&keyword=Altbau&isNavigation=true"
+    "&page=1&PRICE_TO=1500"
+)
+
+DB_PATH = "listings.db"
 DC_HOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 if not DC_HOOK_URL:
@@ -15,7 +26,7 @@ if not DC_HOOK_URL:
 
 
 def init_db():
-    conn = sqlite3.connect("listings.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("""
@@ -26,28 +37,48 @@ def init_db():
         url TEXT,
         price REAL,
         event_type TEXT,
-        seen_at TEXT
+        seen_at TEXT,
+        description TEXT,
+        ground_floor INTEGER,
+        limited_duration INTEGER,
+        separate_kitchen INTEGER
     )
     """)
+
+    # Migrate existing databases without deleting their data.
+    existing = {
+        row[1] for row in cur.execute(
+            "PRAGMA table_info(listings_history)"
+        ).fetchall()
+    }
+
+    new_columns = {
+        "description": "TEXT",
+        "ground_floor": "INTEGER",
+        "limited_duration": "INTEGER",
+        "separate_kitchen": "INTEGER",
+    }
+
+    for name, sql_type in new_columns.items():
+        if name not in existing:
+            cur.execute(
+                f"ALTER TABLE listings_history ADD COLUMN {name} {sql_type}"
+            )
 
     conn.commit()
     conn.close()
 
 
 def print_db_report():
-    conn = sqlite3.connect("listings.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("SELECT COUNT(*) FROM listings_history")
     print("Rows:", cur.fetchone()[0])
 
     cur.execute("""
-    SELECT
-        listing_id,
-        title,
-        price,
-        event_type,
-        seen_at
+    SELECT listing_id, title, price, event_type, seen_at,
+           ground_floor, limited_duration, separate_kitchen
     FROM listings_history
     ORDER BY seen_at DESC
     LIMIT 10
@@ -57,61 +88,26 @@ def print_db_report():
     for row in cur.fetchall():
         print(row)
 
-    conn.commit()
     conn.close()
 
-def process_listings(listings):
-    conn = sqlite3.connect("listings.db")
+
+def find_new_listings(listings):
+    """Return listings whose IDs have not been recorded."""
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    now = datetime.now().isoformat()
-
     new_items = []
-    updated_items = []
 
-    for l in listings:
-        listing_id = l["id"]
+    for listing in listings:
+        cur.execute(
+            "SELECT 1 FROM listings_history WHERE listing_id = ? LIMIT 1",
+            (listing["id"],),
+        )
 
-        # Get latest known state from history
-        cur.execute("""
-        SELECT price
-        FROM listings_history
-        WHERE listing_id = ?
-        ORDER BY seen_at DESC
-        LIMIT 1
-        """, (listing_id,))
+        if cur.fetchone() is None:
+            new_items.append(listing)
 
-        row = cur.fetchone()
-        new_item = False
-        if not row:
-            new_item = True
-
-        # Classify event
-        if new_item:
-            event_type = "NEW"
-            new_items.append(l)
-        else:
-            event_type = "SEEN"
-
-        # Only store meaningful events (no spam)
-        if event_type != "SEEN":
-            cur.execute("""
-            INSERT INTO listings_history (
-                listing_id, title, url, price, event_type, seen_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                listing_id,
-                l["title"],
-                l["url"],
-                l["price"],
-                event_type,
-                now
-            ))
-
-    conn.commit()
     conn.close()
-
     return new_items
 
 
@@ -120,16 +116,13 @@ def scrape_listings():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
+        page = browser.new_page(
+            viewport={"width": 1400, "height": 1000}
+        )
 
-        page = browser.new_page(viewport={"width": 1400, "height": 1000})
-
-        print("Opening page...")
-        page.goto(URL, wait_until="domcontentloaded")
-
-        # Let React hydrate
+        print("Opening search page...")
+        page.goto(URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(1000)
-
-        print("Scrolling...")
 
         last_height = 0
 
@@ -138,65 +131,55 @@ def scrape_listings():
             page.wait_for_timeout(500)
 
             new_height = page.evaluate("document.body.scrollHeight")
-
-            print(f"Scroll {i+1}: height = {new_height}")
+            print(f"Scroll {i + 1}: height = {new_height}")
 
             if new_height == last_height:
                 break
 
             last_height = new_height
 
-        # final lazy-load buffer
         page.wait_for_timeout(1000)
-
         html = page.content()
         browser.close()
 
-    # -------------------------
-    # PARSING
-    # -------------------------
     soup = BeautifulSoup(html, "lxml")
-
     seen = set()
 
     for div in soup.find_all("div", id=True):
         listing_id = div["id"]
 
-        if not listing_id.isdigit():
-            continue
-
-        if listing_id in seen:
+        if not listing_id.isdigit() or listing_id in seen:
             continue
 
         link = div.select_one("a[href*='/iad/immobilien/d/']")
-        if not link:
+        if not link or not link.get("href"):
             continue
 
-        href = link.get("href")
-        if not href:
-            continue
-
-        full_url = urljoin(BASE_URL, href)
-
+        full_url = urljoin(BASE_URL, link["href"])
         title = link.get_text(" ", strip=True).replace("\n", " ")
 
-        # -------------------------
-        # PRICE EXTRACTION
-        # -------------------------
         price_span = div.select_one(
-            "span[data-testid^='search-result-entry-price-']:not([data-testid*='sqmeter'])"
+            "span[data-testid^='search-result-entry-price-']"
+            ":not([data-testid*='sqmeter'])"
         )
 
+        price = None
+
         if price_span:
-            raw_price = price_span.get_text(strip=True)
-            raw_price = raw_price.replace("€", "").strip()
+            raw_price = (
+                price_span.get_text(strip=True)
+                .replace("€", "")
+                .strip()
+            )
 
             try:
-                price = float(raw_price.replace(".", "").replace(",", "."))
-            except:
-                price = float("nan")
-        else:
-            price = float("nan")
+                price = float(
+                    raw_price.replace(".", "").replace(",", ".")
+                )
+                if not math.isfinite(price):
+                    price = None
+            except ValueError:
+                pass
 
         seen.add(listing_id)
 
@@ -204,33 +187,158 @@ def scrape_listings():
             "id": listing_id,
             "title": title,
             "url": full_url,
-            "price": price
+            "price": price,
         })
 
+    print(f"Scraped {len(listings)} listings.")
     return listings
 
 
-def notify_discord(message):
-    requests.post(DC_HOOK_URL, json={
-        "content": message
-    })
+def fetch_descriptions(listings):
+    """Fetch detail pages using one browser session."""
+    descriptions = {}
+
+    if not listings:
+        return descriptions
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(
+            viewport={"width": 1400, "height": 1000}
+        )
+
+        for listing in listings:
+            listing_id = listing["id"]
+
+            try:
+                print(f"Fetching description for {listing_id}")
+
+                page.goto(
+                    listing["url"],
+                    wait_until="domcontentloaded",
+                    timeout=45000,
+                )
+                page.wait_for_timeout(1000)
+
+                # Initial implementation: full visible page text.
+                # Narrow this selector after inspecting a detail page.
+                text = page.locator("body").inner_text(timeout=15000)
+                text = text.strip()
+
+                if not text:
+                    raise ValueError("Empty detail page text")
+
+                descriptions[listing_id] = text[:10000]
+
+            except Exception as exc:
+                print(
+                    f"Description fetch failed for {listing_id}: {exc}"
+                )
+
+        browser.close()
+
+    return descriptions
+
+
+def save_classified_listing(listing, description, result):
+    """Record a listing only after successful classification."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+    INSERT INTO listings_history (
+        listing_id, title, url, price, event_type, seen_at,
+        description, ground_floor, limited_duration, separate_kitchen
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        listing["id"],
+        listing["title"],
+        listing["url"],
+        listing["price"],
+        "NEW",
+        datetime.now().isoformat(),
+        description,
+        (
+            int(result["ground_floor"])
+            if result["ground_floor"] is not None else None
+        ),
+        (
+            int(result["limited_duration"])
+            if result["limited_duration"] is not None else None
+        ),
+        (
+            int(result["separate_kitchen"])
+            if result["separate_kitchen"] is not None else None
+        ),
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def format_flag(value):
+    if value is True:
+        return "✅ Yes"
+    if value is False:
+        return "❌ No"
+    return "❓ Unknown"
+
+
+def notify_discord(listing, result):
+    message = (
+        f"🏠 NEW LISTING\n"
+        f"{listing['title']}\n"
+        f"Price: "
+        f"{'€' + format(listing['price'], ',.2f') if listing['price'] is not None else 'Unknown'}\n\n"
+        f"Ground floor: {format_flag(result['ground_floor'])}\n"
+        f"Limited duration: {format_flag(result['limited_duration'])}\n"
+        f"Separate kitchen: {format_flag(result['separate_kitchen'])}\n\n"
+        f"{listing['url']}"
+    )
+
+    response = requests.post(
+        DC_HOOK_URL,
+        json={"content": message},
+        timeout=15,
+    )
+    response.raise_for_status()
 
 
 if __name__ == "__main__":
     init_db()
-
     print_db_report()
 
     listings = scrape_listings()
+    new_items = find_new_listings(listings)
 
-    new_items = process_listings(listings)
+    print(f"Found {len(new_items)} unrecorded listings.")
 
-    print(f"New: {len(new_items)}")
-    for item in reversed(new_items):
-        print(f"New item {item['id']}")
-        notify_discord(
-            f"🏠 NEW LISTING\n"
-            f"{item['title']}\n"
-            f"€{item['price']}\n"
-            f"{item['url']}"
-        )
+    if not new_items:
+        print("Nothing new to classify. Exiting without loading the model.")
+        raise SystemExit(0)
+
+    descriptions = fetch_descriptions(new_items)
+
+    for listing in new_items:
+        listing_id = listing["id"]
+        description = descriptions.get(listing_id)
+
+        if not description:
+            print(f"Skipping {listing_id}: no description available.")
+            continue
+
+        try:
+            result = classify_apartment(description)
+            print(f"Classification for {listing_id}: {result}")
+
+            save_classified_listing(listing, description, result)
+
+            try:
+                notify_discord(listing, result)
+            except Exception as exc:
+                print(f"Discord notification failed for {listing_id}: {exc}")
+
+        except Exception as exc:
+            print(f"Classification failed for {listing_id}: {exc}")
+            continue
