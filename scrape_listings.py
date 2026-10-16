@@ -375,15 +375,14 @@ def format_number(value):
 def notify_discord(listing, result):
     message = (
         f"🏠 NEW LISTING\n"
-        f"{listing['title']}\n"
-        f"Price: "
-        f"{'€' + format(listing['price'], ',.2f') if listing['price'] is not None else 'Unknown'}\n\n"
-        f"Bezirk: {format_number(result['Bezirk'])}\n"
-        f"Anzahl der Zimmer: {format_number(result['Anzahl der Zimmer'])}\n"
-        f"Stockwerk: {format_number(result['Stockwerk'])}\n"
-        f"Aufzug vorhanden: {format_flag(result['Aufzug vorhanden'])}\n"
+        f"{listing['title']}\n\n"
         f"Unbefristet: {format_flag(result['Unbefristet'])}\n"
-        f"Separate Küche: {format_flag(result['Separate Küche'])}\n\n"
+        f"Separate Küche: {format_flag(result['Separate Küche'])}\n"
+        f"Aufzug vorhanden: {format_flag(result['Aufzug vorhanden'])}\n"
+        f"Bezirk: {format_number(result['Bezirk'])}\n"
+        f"Stockwerk: {format_number(result['Stockwerk'])}\n"
+        f"Anzahl der Zimmer: {format_number(result['Anzahl der Zimmer'])}\n"
+        f"Price: {'€' + format(listing['price'], ',.2f') if listing['price'] is not None else 'Unknown'}\n\n"
         f"{listing['url']}"
     )
 
