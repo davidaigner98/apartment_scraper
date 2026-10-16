@@ -151,11 +151,57 @@ BESCHREIBUNG:
 
     response = llm.create_chat_completion(
         messages=[
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": (
+                    "Du klassifizierst österreichische Mietwohnungen. "
+                    "Gib alle sechs verlangten JSON-Felder zurück. "
+                    "Wenn eine Information unbekannt ist, verwende null. "
+                    "Lasse niemals Felder weg."
+                ),
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
         ],
-        response_format={"type": "json_object"},
+        response_format={
+            "type": "json_object",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "Bezirk": {
+                        "type": ["integer", "null"],
+                    },
+                    "Anzahl der Zimmer": {
+                        "type": ["integer", "null"],
+                    },
+                    "Stockwerk": {
+                        "type": ["integer", "null"],
+                    },
+                    "Aufzug vorhanden": {
+                        "type": ["boolean", "null"],
+                    },
+                    "Unbefristet": {
+                        "type": ["boolean", "null"],
+                    },
+                    "Separate Küche": {
+                        "type": ["boolean", "null"],
+                    },
+                },
+                "required": [
+                    "Bezirk",
+                    "Anzahl der Zimmer",
+                    "Stockwerk",
+                    "Aufzug vorhanden",
+                    "Unbefristet",
+                    "Separate Küche",
+                ],
+                "additionalProperties": False,
+            },
+        },
         temperature=0,
-        max_tokens=250,
+        max_tokens=300,
     )
 
     content = response["choices"][0]["message"]["content"]
