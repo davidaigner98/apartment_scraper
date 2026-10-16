@@ -194,8 +194,10 @@ def scrape_listings():
     return listings
 
 
+
 def fetch_descriptions(listings):
-    """Fetch detail pages using one browser session."""
+    """Extract listing content from the main h1 up to Premium Services."""
+
     descriptions = {}
 
     if not listings:
@@ -218,21 +220,90 @@ def fetch_descriptions(listings):
                     wait_until="domcontentloaded",
                     timeout=45000,
                 )
-                page.wait_for_timeout(1000)
 
-                # Initial implementation: full visible page text.
-                # Narrow this selector after inspecting a detail page.
-                text = page.locator("body").inner_text(timeout=15000)
-                text = text.strip()
+                # Wait for the main listing title.
+                title_selector = 'h1[data-testid="ad-detail-header"]'
+                page.locator(title_selector).wait_for(timeout=15000)
 
-                if not text:
-                    raise ValueError("Empty detail page text")
+                # Extract the relevant rendered DOM fragment.
+                extracted_text = page.locator("body").evaluate(
+                    """(body) => {
+                        const start = body.querySelector(
+                            'h1[data-testid="ad-detail-header"]'
+                        );
 
-                descriptions[listing_id] = text[:10000]
+                        if (!start) {
+                            throw new Error(
+                                "Listing title heading not found"
+                            );
+                        }
+
+                        const normalize = (text) =>
+                            text.replace(/\\s+/g, " ")
+                                .trim()
+                                .toLocaleLowerCase();
+
+                        const walker = document.createTreeWalker(
+                            body,
+                            NodeFilter.SHOW_ELEMENT
+                        );
+
+                        let node = start;
+                        let started = false;
+                        const parts = [];
+
+                        while (node) {
+                            if (node === start) {
+                                started = true;
+                            } else if (
+                                started &&
+                                /^H[1-6]$/.test(node.tagName) &&
+                                normalize(node.innerText) ===
+                                    "premium services"
+                            ) {
+                                break;
+                            }
+
+                            if (
+                                started &&
+                                node.matches(
+                                    "h1, h2, h3, h4, p, li, dt, dd"
+                                )
+                            ) {
+                                const text = node.innerText
+                                    ?.replace(/\\s+/g, " ")
+                                    .trim();
+
+                                if (text) {
+                                    parts.push(text);
+                                }
+                            }
+
+                            node = walker.nextNode();
+                        }
+
+                        return parts.join("\\n");
+                    }"""
+                )
+
+                extracted_text = extracted_text.strip()
+
+                if not extracted_text:
+                    raise ValueError(
+                        "No text extracted from listing page"
+                    )
+
+                descriptions[listing_id] = extracted_text[:10000]
+
+                print(
+                    f"Extracted {len(extracted_text)} characters "
+                    f"for listing {listing_id}"
+                )
 
             except Exception as exc:
                 print(
-                    f"Description fetch failed for {listing_id}: {exc}"
+                    f"Description fetch failed for "
+                    f"{listing_id}: {exc}"
                 )
 
         browser.close()
