@@ -158,11 +158,18 @@ BESCHREIBUNG:
         max_tokens=250,
     )
 
-    raw_output = response["choices"][0]["text"].strip()
-    print("RAW MODEL OUTPUT:", repr(raw_output))
-    
     content = response["choices"][0]["message"]["content"]
-    result = json.loads(content)
+    print("RAW MODEL OUTPUT:", repr(content), flush=True)
+    
+    if not content or not content.strip():
+        raise ValueError("Model returned empty content")
+    
+    try:
+        result = json.loads(content)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Model returned invalid JSON: {content!r}"
+        ) from e
 
     if not isinstance(result, dict) or set(result) != EXPECTED_FIELDS:
         raise ValueError(f"Unexpected model output: {content}")
