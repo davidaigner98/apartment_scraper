@@ -158,6 +158,9 @@ BESCHREIBUNG:
         max_tokens=250,
     )
 
+    raw_output = response["choices"][0]["text"].strip()
+    print("RAW MODEL OUTPUT:", repr(raw_output))
+    
     content = response["choices"][0]["message"]["content"]
     result = json.loads(content)
 
