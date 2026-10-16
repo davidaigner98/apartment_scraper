@@ -226,65 +226,53 @@ def fetch_descriptions(listings):
                 page.locator(title_selector).wait_for(timeout=15000)
 
                 # Extract the relevant rendered DOM fragment.
-                extracted_text = page.locator("body").evaluate(
-                    """(body) => {
-                        const start = body.querySelector(
-                            'h1[data-testid="ad-detail-header"]'
-                        );
-
-                        if (!start) {
-                            throw new Error(
-                                "Listing title heading not found"
-                            );
+                extracted_text = page.locator("body").evaluate("""(body) => {
+                    const start = body.querySelector(
+                        'h1[data-testid="ad-detail-header"]'
+                    );
+                
+                    if (!start) {
+                        throw new Error("Listing title not found");
+                    }
+                
+                    const walker = document.createTreeWalker(
+                        body,
+                        NodeFilter.SHOW_TEXT
+                    );
+                
+                    let node;
+                    let started = false;
+                    const parts = [];
+                
+                    while ((node = walker.nextNode())) {
+                        const text = node.textContent.trim();
+                        if (!text) continue;
+                
+                        const parent = node.parentElement;
+                
+                        // Ignore hidden elements.
+                        if (!parent || !parent.checkVisibility()) continue;
+                
+                        if (start.contains(parent)) {
+                            started = true;
                         }
-
-                        const normalize = (text) =>
-                            text.replace(/\\s+/g, " ")
-                                .trim()
-                                .toLocaleLowerCase();
-
-                        const walker = document.createTreeWalker(
-                            body,
-                            NodeFilter.SHOW_ELEMENT
-                        );
-
-                        let node = start;
-                        let started = false;
-                        const parts = [];
-
-                        while (node) {
-                            if (node === start) {
-                                started = true;
-                            } else if (
-                                started &&
-                                /^H[1-6]$/.test(node.tagName) &&
-                                normalize(node.innerText) ===
-                                    "premium services"
-                            ) {
-                                break;
-                            }
-
-                            if (
-                                started &&
-                                node.matches(
-                                    "h1, h2, h3, h4, p, li, dt, dd"
-                                )
-                            ) {
-                                const text = node.innerText
-                                    ?.replace(/\\s+/g, " ")
-                                    .trim();
-
-                                if (text) {
-                                    parts.push(text);
-                                }
-                            }
-
-                            node = walker.nextNode();
+                
+                        if (
+                            started &&
+                            parent.closest("h1, h2, h3, h4, h5, h6")
+                                ?.textContent.trim().toLowerCase() === "premium services"
+                        ) {
+                            break;
                         }
+                
+                        if (started) {
+                            parts.push(text);
+                        }
+                    }
+                
+                    return parts.join(" ").replace(/\\s+/g, " ").trim();
+                }""")
 
-                        return parts.join("\\n");
-                    }"""
-                )
 
                 extracted_text = extracted_text.strip()
 
