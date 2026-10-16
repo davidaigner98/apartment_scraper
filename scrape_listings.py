@@ -25,45 +25,76 @@ if not DC_HOOK_URL:
     raise RuntimeError("DISCORD_WEBHOOK_URL environment variable is not set.")
 
 
+
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
+    expected_columns = [
+        "id",
+        "listing_id",
+        "title",
+        "url",
+        "price",
+        "event_type",
+        "seen_at",
+    ]
+
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS listings_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        listing_id TEXT,
-        title TEXT,
-        url TEXT,
-        price REAL,
-        event_type TEXT,
-        seen_at TEXT,
-        description TEXT,
-        ground_floor INTEGER,
-        limited_duration INTEGER,
-        separate_kitchen INTEGER
-    )
+        CREATE TABLE IF NOT EXISTS listings_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            listing_id TEXT,
+            title TEXT,
+            url TEXT,
+            price REAL,
+            event_type TEXT,
+            seen_at TEXT
+        )
     """)
 
-    # Migrate existing databases without deleting their data.
-    existing = {
-        row[1] for row in cur.execute(
+    existing_columns = [
+        row[1]
+        for row in cur.execute(
             "PRAGMA table_info(listings_history)"
         ).fetchall()
-    }
+    ]
 
-    new_columns = {
-        "description": "TEXT",
-        "ground_floor": "INTEGER",
-        "limited_duration": "INTEGER",
-        "separate_kitchen": "INTEGER",
-    }
+    if existing_columns != expected_columns:
+        print("Migrating listings_history to the seven-column schema...")
 
-    for name, sql_type in new_columns.items():
-        if name not in existing:
-            cur.execute(
-                f"ALTER TABLE listings_history ADD COLUMN {name} {sql_type}"
+        # Preserve existing values for columns that are available.
+        expressions = [
+            f'"{col}"' if col in existing_columns else "NULL"
+            for col in expected_columns
+        ]
+
+        cur.execute("DROP TABLE IF EXISTS listings_history_new")
+
+        cur.execute("""
+            CREATE TABLE listings_history_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                listing_id TEXT,
+                title TEXT,
+                url TEXT,
+                price REAL,
+                event_type TEXT,
+                seen_at TEXT
             )
+        """)
+
+        cur.execute(f"""
+            INSERT INTO listings_history_new (
+                {", ".join(expected_columns)}
+            )
+            SELECT {", ".join(expressions)}
+            FROM listings_history
+        """)
+
+        cur.execute("DROP TABLE listings_history")
+        cur.execute("""
+            ALTER TABLE listings_history_new
+            RENAME TO listings_history
+        """)
 
     conn.commit()
     conn.close()
@@ -77,11 +108,10 @@ def print_db_report():
     print("Rows:", cur.fetchone()[0])
 
     cur.execute("""
-    SELECT listing_id, title, price, event_type, seen_at,
-           ground_floor, limited_duration, separate_kitchen
-    FROM listings_history
-    ORDER BY seen_at DESC
-    LIMIT 10
+        SELECT listing_id, title, price, event_type, seen_at
+        FROM listings_history
+        ORDER BY seen_at DESC
+        LIMIT 10
     """)
 
     print("\nNewest 10 entries:")
@@ -300,16 +330,14 @@ def fetch_descriptions(listings):
 
 
 def save_classified_listing(listing, description, result):
-    """Record a listing only after successful classification."""
+    """Save listing history without descriptions or classifications."""
     conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
 
-    cur.execute("""
-    INSERT INTO listings_history (
-        listing_id, title, url, price, event_type, seen_at,
-        description, ground_floor, limited_duration, separate_kitchen
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    conn.execute("""
+        INSERT INTO listings_history (
+            listing_id, title, url, price, event_type, seen_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
     """, (
         listing["id"],
         listing["title"],
@@ -317,19 +345,6 @@ def save_classified_listing(listing, description, result):
         listing["price"],
         "NEW",
         datetime.now().isoformat(),
-        description,
-        (
-            int(result["ground_floor"])
-            if result["ground_floor"] is not None else None
-        ),
-        (
-            int(result["limited_duration"])
-            if result["limited_duration"] is not None else None
-        ),
-        (
-            int(result["separate_kitchen"])
-            if result["separate_kitchen"] is not None else None
-        ),
     ))
 
     conn.commit()
@@ -344,15 +359,31 @@ def format_flag(value):
     return "❓ Unknown"
 
 
+
+def format_flag(value):
+    if value is True:
+        return "✅ Yes"
+    if value is False:
+        return "❌ No"
+    return "❓ Unknown"
+
+
+def format_number(value):
+    return str(value) if value is not None else "Unknown"
+
+
 def notify_discord(listing, result):
     message = (
         f"🏠 NEW LISTING\n"
         f"{listing['title']}\n"
         f"Price: "
         f"{'€' + format(listing['price'], ',.2f') if listing['price'] is not None else 'Unknown'}\n\n"
-        f"Ground floor: {format_flag(result['ground_floor'])}\n"
-        f"Limited duration: {format_flag(result['limited_duration'])}\n"
-        f"Separate kitchen: {format_flag(result['separate_kitchen'])}\n\n"
+        f"Bezirk: {format_number(result['Bezirk'])}\n"
+        f"Anzahl der Zimmer: {format_number(result['Anzahl der Zimmer'])}\n"
+        f"Stockwerk: {format_number(result['Stockwerk'])}\n"
+        f"Aufzug vorhanden: {format_flag(result['Aufzug vorhanden'])}\n"
+        f"Unbefristet: {format_flag(result['Unbefristet'])}\n"
+        f"Separate Küche: {format_flag(result['Separate Küche'])}\n\n"
         f"{listing['url']}"
     )
 
